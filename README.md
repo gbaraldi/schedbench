@@ -15,6 +15,15 @@ julia compare.jl results/partr-*.tsv results/ws-*.tsv
 
 Each group also runs standalone: `julia -t 8,1 benchmarks/messaging.jl`.
 
+`plot.jl` renders unicode charts (UnicodePlots.jl, via the suite's project
+env): speedup/slowdown bar sections per thread count, oriented so >1x is
+always "new is better" regardless of unit, plus a producer-scaling line plot
+when producers results are present:
+
+```sh
+julia --project=. plot.jl results/partr-*.tsv results/ws-*.tsv
+```
+
 ## Benchmark groups
 
 | group | benchmarks | measures | sensitive to |

@@ -3,3 +3,4 @@ crossruntime/tokiospawn/target/
 crossruntime/tokiospawn/Cargo.lock
 gospawn
 gobench
+Manifest.toml
