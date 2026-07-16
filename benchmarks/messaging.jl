@@ -55,6 +55,15 @@ end
 banner()
 result("spawn_many_100k", bench(spawn_many, 100_000))
 result("pingpong_10k", bench(pingpong, 10_000))
+# same benchmark with both endpoints in the worker pool: the main-driven
+# variant above measures the cross-pool (interactive -> default) wake path,
+# this one the schedulers' own handoff
+function pingpong_workers(iters)
+    done = Channel{Nothing}(1)
+    Threads.@spawn (pingpong(iters); put!(done, nothing))
+    take!(done)
+end
+result("pingpong_workers_10k", bench(pingpong_workers, 10_000))
 result("token_ring_256x50", bench(token_ring, 256, 50))
 begin
     wake_storm(2_000)   # warmup; times itself (notify -> drained)
