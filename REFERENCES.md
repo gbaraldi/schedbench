@@ -66,3 +66,17 @@ No peer-reviewed analysis of Go's current scheduler or Tokio's exists
 (2018–2026); primary sources remain Vyukov's 2012 design doc, runtime code
 comments, and the Tokio blog. Our TLA+ model of the wake protocol
 (doc/src/devdocs/scheduler-wakeup/) appears to be untrodden ground.
+
+## Dedicated IO thread vs polling in workers (why not to dedicate)
+- Go pre-1.1: singleton `pollServer` goroutine waking blocked goroutines via
+  channels (go1.0.3 src/pkg/net/fd.go). Replaced by the integrated netpoller,
+  golang/go@49e03008 (Go 1.1, 2013): TCP4Persistent −93%, OneShot −77% in the
+  commit message. Current: findRunnable polls; idle Ms block in netpoll;
+  sysmon 10ms backstop.
+- Tokio: reform RFC (2017) chose a dedicated event-loop thread; 0.1 runtime
+  shipped it (docs.rs tokio 0.1.3). Reversed: tokio-rs/tokio#660 (2018,
+  "sharing one reactor among all workers causes a lot of contention; each
+  worker drives its own reactor when it goes to sleep"), completed by the
+  0.2 scheduler (10x blog; Hyper +34%). Current multi_thread/park.rs: one
+  shared driver behind TryLock, parking workers compete for it, losers park
+  on condvars — architecturally identical to Julia's jl_uv_mutex scheme.
