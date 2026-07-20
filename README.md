@@ -33,7 +33,8 @@ julia --project=. plot.jl results/partr-*.tsv results/ws-*.tsv
 | messaging | spawn_many, pingpong, token_ring, wake_storm | channel handoffs, parked-task chains, mass wake | LIFO slot, wake protocol, spinner accounting |
 | latency | raw_ctx_switch, task_alloc, yield, spawn_join{,_pinned}, spawn_forget, wake_parked p50/p99 | single-operation costs, main-vs-worker (cross- vs same-pool) | everything; the Go-comparison numbers |
 | producers | prod_main, prod_P{1,2,4,8,2NT} | spawn-path throughput and retire ceiling | spawn cost, inject striping, @sync bookkeeping |
-| fairness | ttc sojourn p50/p99/max, prefix_1M | scheduling-delay distribution under admission control; dependent barrier chains (after kpamnany/MultithreadingBenchmarks.jl) | LIFO-slot starvation risk, fairness tick, barrier latency |
+| fairness | ttc sojourn p50/p99/max, staggered displacement, prefix_1M | scheduling-delay distribution under admission control; yield-requeue order; dependent barrier chains (after kpamnany/MultithreadingBenchmarks.jl) | LIFO-slot starvation risk, fairness tick, barrier latency |
+| tokiostyle | chained_spawn, yield_many, ping_pong pairs, spawn_busy | serial spawn chains, contended yield, mass handoff pairs, injection under load (after tokio benches/rt_multi_threaded.rs) | LIFO handoff, yield requeue locality, inject drain rate / fairness tick |
 
 Reference points (Go 1.22, same machine, `crossruntime/`): goroutine switch
 ~60ns (Julia raw yieldto: ~59ns — parity), spawn+join ~270ns, single-producer
