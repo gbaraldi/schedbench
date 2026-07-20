@@ -55,6 +55,35 @@ function prefix!(y::Vector{Int})
     return y
 end
 
+# Staggered long-running yielding tasks (a classic partr-era fairness
+# check): N tasks spawned 1ms apart, each doing hash work and yielding every
+# 1M iterations. A fair scheduler completes them roughly in spawn order;
+# displacement is how far a task's completion rank strays from its spawn
+# rank. Exercises where yield() requeues a task (in a LIFO-slot scheduler a
+# yielding task can be popped straight back, up to the streak cap).
+function staggered(N, iters)
+    order = Atomic{Int}(0)
+    finish_rank = Vector{Int}(undef, N)
+    sojourn = Vector{Float64}(undef, N)
+    @sync for j in 1:N
+        t0 = time_ns()
+        Threads.@spawn begin
+            h = UInt64(j)
+            for i in 1:iters
+                h = hash(i, h)
+                mod(i, 1_000_000) == 0 && yield()
+            end
+            finish_rank[j] = atomic_add!(order, 1) + 1
+            sojourn[j] = (time_ns() - t0) / 1e6
+            h == UInt64(0) && error("unreachable")
+        end
+        sleep(0.001)
+    end
+    disp = maximum(abs(finish_rank[j] - j) for j in 1:N)
+    sort!(sojourn)
+    return disp, sojourn[end ÷ 2], sojourn[99 * end ÷ 100]
+end
+
 banner()
 ttc(500, 100)  # warmup
 p50, p99, mx = ttc(5_000, 100)
@@ -63,3 +92,8 @@ result("ttc_5k_sojourn_p99", p99)
 result("ttc_5k_sojourn_max", mx)
 const A = rand(Int, 1_000_000)
 result("prefix_1M", bench(prefix!, A))
+staggered(32, 1_000_000)  # warmup
+disp, sp50, sp99 = staggered(512, 10_000_000)
+result("staggered_512_displacement", disp; unit="ranks")
+result("staggered_512_sojourn_p50", sp50)
+result("staggered_512_sojourn_p99", sp99)
