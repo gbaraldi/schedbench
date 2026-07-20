@@ -10,7 +10,7 @@
 # differences under ~15% need multiple reps AND a same-day baseline to mean
 # anything; never compare against TSVs recorded on a different day.
 
-const GROUPS = ["throughput", "regions", "messaging", "latency", "producers"]
+const GROUPS = ["throughput", "regions", "messaging", "latency", "producers", "fairness"]
 
 function parseargs()
     opt = Dict{String,String}("julia" => "julia", "groups" => "all",
