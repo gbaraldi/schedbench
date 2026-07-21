@@ -1,0 +1,68 @@
+// Scheduler sleep/wake aggregation for the triad-regions workload.
+// Attach with: sudo bpftrace sched.bt -p <julia pid>
+// All ptls-pointer args are used only as stable per-thread keys.
+
+usdt:/home/gbaraldi/julia2-partr/usr/lib/libjulia-internal.so:julia:rt__sleep__check__sleep
+{
+    @sleeps = count();
+    // Only record the first entry of a sleep episode; the probe can fire
+    // again on inner loop iterations before the thread actually parks.
+    if (@sleep_ts[arg0] == 0) {
+        @sleep_ts[arg0] = nsecs;
+    }
+}
+
+usdt:/home/gbaraldi/julia2-partr/usr/lib/libjulia-internal.so:julia:rt__sleep__check__wake
+{
+    @wakes_sent = count();
+    @wake_from_state[arg1] = count();
+    if (@wake_ts[arg0] == 0) {
+        @wake_ts[arg0] = nsecs;
+    }
+}
+
+usdt:/home/gbaraldi/julia2-partr/usr/lib/libjulia-internal.so:julia:rt__sleep__check__taskq__wake
+{
+    @wake_reason["taskq"] = count();
+    if (@sleep_ts[arg0]) {
+        @park_us = hist((nsecs - @sleep_ts[arg0]) / 1000);
+        delete(@sleep_ts[arg0]);
+    }
+    if (@wake_ts[arg0]) {
+        @wake_latency_us = hist((nsecs - @wake_ts[arg0]) / 1000);
+        delete(@wake_ts[arg0]);
+    }
+}
+
+usdt:/home/gbaraldi/julia2-partr/usr/lib/libjulia-internal.so:julia:rt__sleep__check__task__wake
+{
+    @wake_reason["task"] = count();
+    if (@sleep_ts[arg0]) {
+        @park_us = hist((nsecs - @sleep_ts[arg0]) / 1000);
+        delete(@sleep_ts[arg0]);
+    }
+    if (@wake_ts[arg0]) {
+        @wake_latency_us = hist((nsecs - @wake_ts[arg0]) / 1000);
+        delete(@wake_ts[arg0]);
+    }
+}
+
+usdt:/home/gbaraldi/julia2-partr/usr/lib/libjulia-internal.so:julia:rt__sleep__check__uv__wake
+{
+    @wake_reason["uv"] = count();
+    if (@sleep_ts[arg0]) {
+        @park_us = hist((nsecs - @sleep_ts[arg0]) / 1000);
+        delete(@sleep_ts[arg0]);
+    }
+    if (@wake_ts[arg0]) {
+        @wake_latency_us = hist((nsecs - @wake_ts[arg0]) / 1000);
+        delete(@wake_ts[arg0]);
+    }
+}
+
+
+END
+{
+    clear(@sleep_ts);
+    clear(@wake_ts);
+}

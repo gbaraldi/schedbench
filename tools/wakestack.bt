@@ -1,0 +1,4 @@
+usdt:/home/gbaraldi/julia2-partr/usr/lib/libjulia-internal.so:julia:rt__sleep__check__wake
+{
+    @stk[ustack(5)] = count();
+}
