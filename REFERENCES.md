@@ -147,3 +147,33 @@ ZERO. The FJP/Rayon/TBB family compares to PENDING: wake while
 n_spinning < pending, which with wake-as-spinner pre-accounting wakes
 exactly (pending − in-flight) workers — burst fan-out, handoff gating, and
 no starvation from leftover spinners, with no fork-join special-casing.
+
+### The academic literature on the same question
+- Karlin, Li, Manasse, Owicki. *Empirical Studies of Competitive Spinning
+  for a Shared-Memory Multiprocessor.* SOSP 1991. Spin-then-block with spin
+  budget ≈ context-switch cost is 2-competitive with the offline optimum;
+  studies seven adaptive variants. The theory behind every blocktime/grace
+  knob (KMP_BLOCKTIME, JULIA_THREAD_SLEEP_THRESHOLD): the wake side gets
+  cheaper the longer the sleep side is willing to poll.
+- Lim, Agarwal. *Waiting Algorithms for Synchronization in Large-Scale
+  Multiprocessors.* TOCS 11(3), 1993. Generalizes two-phase waiting beyond
+  locks (barriers, producer-consumer); static spin budgets close to optimal
+  when waiting-time distributions are known.
+- Gandhi, Doroudi, Harchol-Balter, Scheller-Wolf. *Exact Analysis of the
+  M/M/k/setup Class of Markov Chains.* SIGMETRICS 2013; and Gandhi et al.,
+  *AutoScale* (TOCS 2012). The queueing-theoretic formalization: a parked
+  worker is a server with a SETUP TIME (our ~35µs wake hop). Main results
+  mapped to schedulers: (a) setup times shift the optimal policy toward
+  keeping servers on briefly after going idle (DelayedOff ≈ blocktime /
+  sleep threshold), and (b) waking one server per arrival (staggered setup)
+  badly underperforms when arrivals are bursty — the queueing-theory name
+  for the serial wake chain this suite measured (8.7µs vs 34.7µs inter-wake
+  gaps; running-thread crawl 3→11 over 800µs on a 16-task burst).
+- Williams et al., CMU-CS-24-104 (2024) and the M/M/k/Setup-Deterministic
+  line (SIGMETRICS 2023): deterministic setup times (closest to a futex
+  wake) are provably worse for waiting time than exponential ones at the
+  same mean — bursty fork-join is the adversarial case, not the benign one.
+- Ribic, Liu. *Energy-Efficient Work-Stealing Language Runtimes.* ASPLOS
+  2014 (HERMES). DVFS-based thief tempo control; the energy-side argument
+  for waking few workers slowly — the counterweight to burst fan-out, and
+  why the count gate should wake (pending − searching), not the whole pool.
