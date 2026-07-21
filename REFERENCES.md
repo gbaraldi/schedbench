@@ -80,3 +80,70 @@ comments, and the Tokio blog. Our TLA+ model of the wake protocol
   0.2 scheduler (10x blog; Hyper +34%). Current multi_thread/park.rs: one
   shared driver behind TryLock, parking workers compete for it, losers park
   on condvars — architecturally identical to Julia's jl_uv_mutex scheme.
+
+## Wakeup policy: how many workers to wake, and when (2026-07-21)
+
+The ablation of #62284 against its merge-base isolated the wakeup-policy
+question from task selection: master wakes one thread per enqueue (parallel
+burst ramp, pathological handoff storms), spinner accounting wakes at most
+one while anyone spins (storm-free, serial burst ramp). Survey of how other
+runtimes gate wakeups:
+
+### Family 1: spinner-conservation gates (wake ≤ 1, rely on propagation)
+- Vyukov, *Scalable Go Scheduler Design Doc* (2012) + `runtime/proc.go`
+  header comment: unpark an additional spinning M when readying a goroutine
+  only "if there is an idle P and there are no other spinning threads";
+  the doc explicitly names the tradeoff — unconditional unpark causes
+  "excessive thread parking/unparking", suppressed unpark hurts ramp.
+  Propagation: a spinning M that finds work calls `wakep` (resetspinning)
+  to conserve "one spinner while there may be work". Burst ramp is a serial
+  chain, absorbed in practice by steal-half + long busy-spin in findrunnable.
+- Tokio (multi-thread runtime, since PR #660 rewrite): `notify_one` gated on
+  "no searching workers"; a searching worker that finds work notifies a
+  successor. Same shape as Go; LIFO slot + steal-half bound the damage.
+- **Both mitigate the serial chain with a spin phase long enough to absorb
+  the next wake — the piece Julia's park-immediately workers lack.**
+
+### Family 2: demand-count gates (wake pending − active, generically)
+- Java ForkJoinPool (Doug Lea, jsr166): `signalWork` releases/creates a
+  worker whenever the packed `ctl` counts show active < parallelism AND
+  work was just pushed; each activated worker signals at most one more if
+  its queue is still nonempty ("to reduce flailing, each worker signals
+  only one other per activation") — count gate + bounded propagation chain.
+- Rayon (`rayon-core/src/sleep/README.md`): on posting a job, "check if
+  there are idle threads available to handle this new job; if not, and
+  there are sleeping threads, then wake one or more" — demand vs
+  idle-count comparison, with the Jobs Event Counter protocol (seq-cst
+  fence + odd/even counter) closing the lost-wakeup race. The best written
+  spec of a count-gated wake protocol.
+- TBB: arena advertises work to the market, which adjusts per-arena worker
+  demand (`adjust_demand`) — workers are allocated by count of pending
+  demand, not by a boolean "someone is looking".
+- Agrawal, Leiserson et al., *Adaptive work stealing with parallelism
+  feedback* (A-STEAL, PPoPP 2007/TOCS): per-quantum processor requests from
+  measured parallelism — demand-count at scheduler-quantum granularity.
+
+### Family 3: congestion/delay signals (the µs-kernel literature)
+- Shenango (NSDI 2019): IOKernel polls every 5 µs; a packet or thread still
+  queued since the previous poll ⇒ grant one more core. Delay-since-last-
+  check, not instantaneous count — deliberately hysteretic to avoid
+  overreaction. Caladan (OSDI 2020) refines with finer signals.
+- Arachne (OSDI 2018): core estimator from load factor with hysteresis.
+
+### Family 4: don't sleep / structured release
+- OpenMP (libomp): `KMP_BLOCKTIME` default 200 ms of spin-wait before
+  parking — back-to-back regions never pay a wake at all (the design Julia
+  approximates with JULIA_THREAD_SLEEP_THRESHOLD=100µs, 2000× shorter);
+  when workers do sleep, fork release goes through the tree barrier
+  (hierarchical, log fan-out; cf. Mellor-Crummey & Scott 1991).
+
+### Synthesis for Julia
+Sampler evidence (this suite + jl_sched_n_spinning getter): committed SA
+ramps a parked pool in parallel by accident (freshly woken threads aren't
+spinners yet, so the boolean gate stays open) but starves when leftover
+spinners exist; wakep serializes the cold ramp (pre-accounted slot closes
+the gate after one wake). Both fail because the gate compares spinners to
+ZERO. The FJP/Rayon/TBB family compares to PENDING: wake while
+n_spinning < pending, which with wake-as-spinner pre-accounting wakes
+exactly (pending − in-flight) workers — burst fan-out, handoff gating, and
+no starvation from leftover spinners, with no fork-join special-casing.
